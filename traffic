@@ -1,57 +1,46 @@
-#include <iostream>
-#include <vector>
-#include <queue>
-#include <string>
-#include <algorithm> // Not strictly needed for this version but often useful
-#include <limits>    // For std::numeric_limits
-#include <stdexcept> // For std::runtime_error
-#include <ctime>     // For time()
-#include <cstdlib>   // For srand() and rand()
+Intersection(int intersection_id) : id(intersection_id) {}
 
-// --- Configuration Constants ---
-const int SIMULATION_TIME_STEPS = 50; // Reduced for more readable output initially
-const int MIN_GREEN_TIME = 5;         // Min time a light stays green
-const int MAX_GREEN_TIME = 15;        // Max time a light stays green
-const int YELLOW_TIME = 2;            // Yellow light duration
-const double VEHICLE_ARRIVAL_PROBABILITY = 0.4; // Chance of new vehicle per road per step
-
-// --- Data Structures ---
-int nextVehicleId = 0;
-struct Vehicle {
-    int id;
-    int arrivalTimeStep;
-    int sourceRoadId;
-
-    Vehicle(int time, int roadId) : id(nextVehicleId++), arrivalTimeStep(time), sourceRoadId(roadId) {}
-};
-
-struct Road {
-    int id;
-    std::string name;
-    std::queue<Vehicle> waitingVehicles;
-    int vehiclesPassedThisGreenCycle = 0; // Renamed for clarity, reset when light turns yellow
-
-    Road(int road_id, const std::string& road_name) : id(road_id), name(road_name) {}
-
-    void addVehicle(const Vehicle& v) {
-        waitingVehicles.push(v);
+    void addRoad(Road* road) {
+        incomingRoads.push_back(road);
     }
 
-    bool hasVehicles() const {
-        return !waitingVehicles.empty();
+    void initializeLights() {
+        if (incomingRoads.empty()) return;
+        currentGreenRoadIndex = 0;
+        currentLightState = LightState::GREEN;
+        phaseTimer = MIN_GREEN_TIME;
+        std::cout << "[Time 0] Intersection " << id << ": Light for "
+                  << incomingRoads[currentGreenRoadIndex]->name << " is GREEN (Duration: " << phaseTimer << ")." << std::endl;
     }
 
-    size_t queueLength() const {
-        return waitingVehicles.size();
-    }
+    void updateLightPhase(int currentTimeStep) {
+        if (incomingRoads.empty()) return;
 
-    Vehicle processVehicle() { // currentTimeStep not needed here anymore
-        if (!waitingVehicles.empty()) {
-            Vehicle v = waitingVehicles.front();
-            waitingVehicles.pop();
-            vehiclesPassedThisGreenCycle++;
-            return v;
-        }
-        throw std::runtime_error("Tried to process vehicle from empty queue");
-    }
-};
+        phaseTimer--;
+
+        if (phaseTimer <= 0) {
+            Road* previousGreenRoad = incomingRoads[currentGreenRoadIndex];
+
+            if (currentLightState == LightState::GREEN) {
+                currentLightState = LightState::YELLOW;
+                phaseTimer = YELLOW_TIME;
+                previousGreenRoad->vehiclesPassedThisGreenCycle = 0; // Reset counter for this road
+                std::cout << "  [Time " << currentTimeStep << "] EVENT: Light for "
+                          << previousGreenRoad->name << " changed to YELLOW (Duration: " << phaseTimer << ")." << std::endl;
+
+            } else if (currentLightState == LightState::YELLOW) {
+                // GREEDY CHOICE LOGIC for next green light
+                int oldGreenRoadIndex = currentGreenRoadIndex;
+                int nextBestCandidateIndex = oldGreenRoadIndex; // Start with current as a fallback
+                size_t maxQueueFound = 0;
+
+                // Iterate through roads, typically preferring roads other than the current one
+                // to find the longest queue. The loop structure ensures all roads are checked,
+                // starting from the one after the current green, giving others a chance.
+                for (size_t i = 0; i < incomingRoads.size(); ++i) {
+                    int R_idx = (oldGreenRoadIndex + 1 + i) % incomingRoads.size();
+                    if (incomingRoads[R_idx]->queueLength() > maxQueueFound) {
+                        maxQueueFound = incomingRoads[R_idx]->queueLength();
+                        nextBestCandidateIndex = R_idx;
+                    }
+                }
